@@ -4,6 +4,8 @@
 
 An independent look at how households in British Columbia, Ontario and Alberta respond to the price of natural gas, built from public data in Python. It asks three questions: how much does a higher price reduce gas use, how does that differ between the first year and the long run, and has the response changed since 1980? Along the way it shows two traps that make households look more price-sensitive than they are.
 
+> **Personal project.** This is my own analysis of publicly available data. It is not associated with my work for any current or past employer and does not represent their views.
+
 ![Two traps in measuring the price response](figures/two_traps.png)
 
 ![Price elasticity over time, Kalman filter](figures/elasticity_over_time.png)
