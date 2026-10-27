@@ -9,6 +9,7 @@ Run from the repository folder: python gas.py
 """
 from pathlib import Path
 import io
+import time
 import urllib.request
 import zipfile
 
@@ -25,12 +26,23 @@ START = "1980-01"
 ALBERTA_END = "2014-10"  # from November 2014 Alberta's reported price covers only the gas commodity
 
 
-def cached(url, name):
-    """Download once into data/; delete the file to download it again."""
+def cached(url, name, tries=3, wait=30):
+    """Download once into data/; delete the file to download it again. A failed download (the climate service
+    sometimes times out) is retried after 30 and then 60 seconds."""
     path = DATA / name
     if not path.exists():
         DATA.mkdir(exist_ok=True)
-        urllib.request.urlretrieve(url, path)
+        for attempt in range(1, tries + 1):
+            try:
+                with urllib.request.urlopen(url, timeout=120) as response:
+                    body = response.read()  # read in full before writing, so a failure leaves no partial file
+                break
+            except OSError as error:  # timeouts, refused connections and HTTP errors
+                if attempt == tries:
+                    raise
+                print(f"Download of {name} failed ({error}); retrying in {wait * attempt} seconds")
+                time.sleep(wait * attempt)
+        path.write_bytes(body)
     return path
 
 

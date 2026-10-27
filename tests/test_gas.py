@@ -1,8 +1,36 @@
 """Checks for the data handling and models in gas.py. No downloads: every input is built here."""
+import io
+import urllib.error
+
 import numpy as np
 import pandas as pd
+import pytest
 
 import gas
+
+
+def test_download_retries_after_failures_and_gives_up_after_three(monkeypatch, tmp_path):
+    calls, sleeps = [], []
+
+    def flaky(url, timeout):
+        calls.append(timeout)
+        if len(calls) < 3:
+            raise TimeoutError("timed out")
+        return io.BytesIO(b"data")
+
+    monkeypatch.setattr(gas, "DATA", tmp_path)
+    monkeypatch.setattr(gas.time, "sleep", sleeps.append)
+    monkeypatch.setattr(gas.urllib.request, "urlopen", flaky)
+    assert gas.cached("https://example.org/a", "a.csv").read_bytes() == b"data"
+    assert calls == [120, 120, 120] and sleeps == [30, 60]
+
+    def down(url, timeout):
+        raise urllib.error.URLError("refused")
+
+    monkeypatch.setattr(gas.urllib.request, "urlopen", down)
+    with pytest.raises(urllib.error.URLError):
+        gas.cached("https://example.org/b", "b.csv")
+    assert not (tmp_path / "b.csv").exists()
 
 
 def statcan_rows(geo, dims, values):
