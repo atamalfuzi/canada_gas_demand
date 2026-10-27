@@ -112,7 +112,17 @@ def heating_degree_days(daily):
 
 
 # Series ----
-def monthly(gas, index, hdd):
+# Years from which the tables report differently, so each period gets its own level: the 2016 switch to the
+# newer table, and Ontario's coverage change after its 1998-2000 gap (customers up a quarter in 2001)
+REPORTING_BREAKS = {"British Columbia": [2016], "Ontario": [2001, 2016], "Alberta": []}
+
+
+def breaks(frame):
+    """The reporting-break columns that vary within this sample."""
+    return [c for c in frame if c.startswith("since_") and 0 < frame[c].mean() < 1]
+
+
+def monthly(gas, index, hdd, reporting_breaks=()):
     """One province's monthly series: use per customer, real price, heating degree days."""
     d = gas.copy()
     d.index = pd.PeriodIndex(d.index, freq="M")
@@ -125,7 +135,8 @@ def monthly(gas, index, hdd):
     # Households see last month's bill, and the average price falls in cold months as fixed charges spread
     # over more gas: the average over the previous 12 months is free of both problems
     d["log_price_past_year"] = d.log_price.shift(1).rolling(12).mean()
-    d["post2016"] = (d.index.year >= 2016) * 1.0  # the newer table, whose reporting may differ
+    for year in reporting_breaks:
+        d[f"since_{year}"] = (d.index.year >= year) * 1.0
     return d
 
 
@@ -137,7 +148,7 @@ def annual(d):
         "use": g.m3.sum(min_count=12) / g.customers.mean(),
         "real_price": g.spend.sum(min_count=12) / g.m3.sum(min_count=12),
         "hdd": g.hdd.sum(min_count=12),
-        "post2016": g.post2016.max(),
+        **{c: g[c].max() for c in d if c.startswith("since_")},
     })[g.size() == 12]
     y = y.reindex(range(y.index.min(), y.index.max() + 1))  # keep gaps as gaps, so last year's use is last year's
     y["log_use"], y["log_price"] = np.log(y.use), np.log(y.real_price)
@@ -152,11 +163,11 @@ MODEL_INPUTS = ["log_use", "log_price", "log_use_lag", "hdd"]
 # Models ----
 def monthly_model(d, price):
     """Log use per customer on a log real price, heating degree days, calendar month, a linear trend and the
-    2016 table change, with standard errors robust to a year of autocorrelation."""
+    reporting breaks, with standard errors robust to a year of autocorrelation."""
     d = d.dropna(subset=["use", price, "hdd"])
     month = pd.get_dummies(d.index.month, prefix="month", drop_first=True, dtype=float).set_index(d.index)
-    X = pd.concat([d[price], d.hdd / 100, month, pd.Series(np.arange(len(d)) / 120, index=d.index, name="trend")]
-                  + ([d.post2016] if d.post2016.any() else []), axis=1)
+    X = pd.concat([d[price], d.hdd / 100, month, pd.Series(np.arange(len(d)) / 120, index=d.index, name="trend"),
+                   d[breaks(d)]], axis=1)
     return sm.OLS(np.log(d.use), sm.add_constant(X)).fit(cov_type="HAC", cov_kwds={"maxlags": 12})
 
 
@@ -164,7 +175,7 @@ def partial_adjustment(y, trend=True):
     """Annual partial adjustment: use moves part of the way to its long-run level each year, so the short-run
     elasticity is b and the long-run one b / (1 - adjustment), with a delta-method standard error."""
     y = y.dropna(subset=MODEL_INPUTS)
-    cols = ["log_price", "log_use_lag", "hdd"] + (["trend"] if trend else []) + (["post2016"] if y.post2016.any() else [])
+    cols = ["log_price", "log_use_lag", "hdd"] + (["trend"] if trend else []) + breaks(y)
     fit = sm.OLS(y.log_use, sm.add_constant(y[cols].assign(hdd=y.hdd / 1000))).fit()
     b, lag = fit.params.log_price, fit.params.log_use_lag
     grad = pd.Series(0.0, index=fit.params.index)
@@ -175,7 +186,7 @@ def partial_adjustment(y, trend=True):
 
 class TimeVaryingElasticity(MLEModel):
     """Annual partial adjustment in which the short-run price elasticity is a random walk: log use = elasticity_t
-    x log price + fixed effects (constant, last year's log use, heating degree days, trend, the 2016 table change)
+    x log price + fixed effects (constant, last year's log use, heating degree days, trend, reporting breaks)
     + noise. The Kalman smoother traces the elasticity; its variance and the noise variance are estimated by
     maximum likelihood."""
 
@@ -218,7 +229,7 @@ def time_varying(y):
     usable = y[MODEL_INPUTS].notna().all(axis=1)
     y = y.loc[usable.idxmax():usable[::-1].idxmax()]
     usable = usable.reindex(y.index)
-    fixed = sm.add_constant(y[["log_use_lag", "hdd", "trend"] + (["post2016"] if y.post2016.any() else [])]
+    fixed = sm.add_constant(y[["log_use_lag", "hdd", "trend"] + breaks(y)]
                             .assign(hdd=y.hdd / 1000), has_constant="add").fillna(0)
     model = TimeVaryingElasticity(y.log_use.where(usable), y.log_price.fillna(0), fixed)
     fit = model.fit(disp=False, maxiter=1000)
@@ -240,7 +251,7 @@ def main():
     for p in PROVINCES:
         new, old = STATIONS[p]
         hdd = heating_degree_days(temperature(new).combine_first(temperature(old)))
-        d = monthly(gas.loc[p], prices.loc[p], hdd).loc["1981-01":]
+        d = monthly(gas.loc[p], prices.loc[p], hdd, REPORTING_BREAKS[p]).loc["1981-01":]
         series[p] = d.loc[:ALBERTA_END] if p == "Alberta" else d
         years[p] = annual(series[p])
 
