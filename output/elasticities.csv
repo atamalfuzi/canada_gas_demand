@@ -1,0 +1,4 @@
+province,months,years,monthly_naive,monthly_naive_se,monthly_past_year_price,monthly_past_year_price_se,annual_short_run,annual_short_run_se,annual_adjustment,annual_long_run,annual_long_run_se,annual_long_run_no_trend,annual_long_run_no_trend_se,time_varying_lr_stat,time_varying_p_value
+British Columbia,548,44,-0.2214,0.0388,-0.1457,0.0488,-0.1178,0.043,0.3381,-0.1779,0.0678,-0.3864,0.0731,38.4186,0.0
+Ontario,512,40,-0.1721,0.0257,-0.1588,0.0285,-0.0485,0.0217,0.1476,-0.0569,0.0247,-0.0242,0.1,18.666,0.0
+Alberta,406,32,-0.0162,0.0326,-0.0089,0.048,-0.0015,0.0274,0.1707,-0.0019,0.0331,-0.1838,0.1383,3.4993,0.0307
