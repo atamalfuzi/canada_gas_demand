@@ -4,6 +4,8 @@
 
 An independent look at how households in British Columbia, Ontario and Alberta respond to the price of natural gas, built from public data in Python. It asks three questions: how much does a higher price reduce gas use, how does that differ between the first year and the long run, and has the response changed since 1980? Along the way it shows two traps that make households look more price-sensitive than they are.
 
+**[Live dashboard](https://atamalfuzi.github.io/canada_gas_demand/)**, rebuilt on the 28th of each month from Statistics Canada's latest data: the latest month's gas use in BC and Ontario against what weather, season, price and trend predict, the last 12 months against the 12 before, the real price, and the elasticities re-estimated with all data to date. The results below are as of October 2026 (data through August 2026).
+
 > **Personal project.** This is my own analysis of publicly available data. It is not associated with my work for any current or past employer and does not represent their views.
 
 ![Two traps in measuring the price response](figures/two_traps.png)
@@ -83,6 +85,8 @@ python gas.py
 Run it from the repository folder. The first run downloads about 21 MB into `data/`; later runs reuse those files (delete them to download again) and take a few seconds. It writes the charts to `figures/` and the tables to `output/`, and prints the estimates.
 
 To run the tests: `pip install -r requirements-dev.txt`, then `pytest`. They need no downloads.
+
+To build the dashboard, run `python dashboard.py` after `gas.py`. It writes a static site to `site/` and stops without writing if the latest data have gaps or implausible values. Delete `data/` first to pick up Statistics Canada's newest month. The [dashboard workflow](.github/workflows/dashboard.yml) does all of this on the 28th of each month and publishes `site/` with GitHub Pages.
 
 ## License
 
