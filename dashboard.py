@@ -1,8 +1,9 @@
 """Monthly dashboard for residential gas demand in British Columbia and Ontario: the latest month against
 what weather, season, price and trend predict, the last 12 months against the 12 before (weather-adjusted),
-the real price, and the latest elasticity estimates. Writes a static site to site/.
+the real price, the next 12 months' forecast with its 80% range, and the latest elasticity estimates. Writes a static
+site to site/.
 
-Run from the repository folder, after gas.py: python gas.py && python dashboard.py
+Run from the repository folder, after gas.py and forecast.py: python gas.py && python forecast.py && python dashboard.py
 """
 from pathlib import Path
 import datetime as dt
@@ -27,14 +28,7 @@ PROVINCES = ["British Columbia", "Ontario"]  # Alberta's reported price changes 
 
 def series():
     """Each province's monthly series, built exactly as in gas.py."""
-    g = gas.fix_ontario(pd.concat([gas.gas_old(gas.statcan("25100033")), gas.gas_new(gas.statcan("25100086"))]).sort_index())
-    prices = gas.cpi(gas.statcan("18100004"))
-    out = {}
-    for p in PROVINCES:
-        new, old = gas.STATIONS[p]
-        hdd = gas.heating_degree_days(gas.temperature(new).combine_first(gas.temperature(old)))
-        out[p] = gas.monthly(g.loc[p], prices.loc[p], hdd, gas.REPORTING_BREAKS[p]).loc["1981-01":]
-    return out
+    return gas.load(PROVINCES)[0]
 
 
 # Monthly figures ----
@@ -45,16 +39,9 @@ def expected_use(d):
     return np.exp(fit.fittedvalues).reindex(d.index), fit.params.hdd / 100  # the model uses hundreds of degree days
 
 
-def weather_adjusted(d, per_degree_day):
-    """Use per customer as if each month had its calendar month's 1991-2020 average heating degree days."""
-    base = d.loc["1991-01":"2020-12"]
-    normal = base.hdd.groupby(base.index.month).mean()
-    return d.use * np.exp(per_degree_day * (d.index.month.map(normal).to_numpy() - d.hdd))
-
-
 def summary(d):
     expected, per_degree_day = expected_use(d)
-    adjusted = weather_adjusted(d, per_degree_day)
+    adjusted = gas.weather_adjusted(d, per_degree_day)
     last = d.index.max()
     return {
         "month": str(last),
@@ -146,7 +133,7 @@ def pct(x):
     return f"{x:+.1%}".replace("-", "−")
 
 
-def page(stats, elasticities, latest_path, data_through, updated):
+def page(stats, forecast, elasticities, latest_path, data_through, updated):
     month = pd.Period(data_through, "M").strftime("%B %Y")
     cards = "".join(f"""
       <section class="card">
@@ -158,6 +145,8 @@ def page(stats, elasticities, latest_path, data_through, updated):
             <p>Weather-adjusted to an average year</p></div>
           <div><dt>Real price vs a year earlier</dt><dd>{pct(s['real_price_vs_year_ago'])}</dd>
             <p>{month}, after inflation</p></div>
+          <div><dt>Next 12 months, million m³</dt><dd>{forecast.loc[p, 'forecast']:,.0f}</dd>
+            <p>In normal weather; 80% range {forecast.loc[p, 'low_80']:,.0f} to {forecast.loc[p, 'high_80']:,.0f}. Past 12-month forecasts missed by {forecast.loc[p, 'mean_abs_error_pct']:.1f}% on average</p></div>
         </dl>
       </section>""" for p, s in stats.items())
     rows = "".join(
@@ -172,7 +161,7 @@ def page(stats, elasticities, latest_path, data_through, updated):
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'none'; style-src 'self'; img-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'" />
   <title>Household gas demand monitor: BC and Ontario | Ata Malfuzi</title>
-  <meta name="description" content="Monthly update on household natural gas use and prices in British Columbia and Ontario, with the latest price elasticity estimates." />
+  <meta name="description" content="Monthly update on household natural gas use and prices in British Columbia and Ontario, with a 12-month forecast and the latest price elasticity estimates." />
   <link rel="canonical" href="{URL}" />
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -185,6 +174,7 @@ def page(stats, elasticities, latest_path, data_through, updated):
   <div class="cards">{cards}
   </div>
   <figure><img src="recent_use.png" alt="Two panels of gas use per customer over the last three years in British Columbia and Ontario, actual against expected." width="1800" height="750" /></figure>
+  <figure><img src="forecast.png" alt="Residential gas volume over the last three years in British Columbia and Ontario, with a forecast for the next 12 months and its 80% range." width="2400" height="1080" /></figure>
   <figure><img src="price_trend.png" alt="Residential gas price after inflation over the last ten years in British Columbia and Ontario, 12-month average." width="1800" height="690" /></figure>
   <h2>Latest price elasticities</h2>
   <p>The % change in gas use per customer for a 1% higher real price, re-estimated each month with all data to date.</p>
@@ -240,7 +230,9 @@ def main():
     stats = {p: summary(d) for p, d in data.items()}
     expected = {p: expected_use(d)[0] for p, d in data.items()}
     figures(data, expected)
-    shutil.copy(gas.FIGURES / "elasticity_over_time.png", SITE / "elasticity_over_time.png")
+    for name in ("elasticity_over_time.png", "forecast.png"):
+        shutil.copy(gas.FIGURES / name, SITE / name)
+    forecast = pd.read_csv(gas.OUTPUT / "forecast_total.csv", index_col="province").loc[PROVINCES]
 
     elasticities = pd.read_csv(gas.OUTPUT / "elasticities.csv", index_col="province").loc[PROVINCES]
     paths = pd.read_csv(gas.OUTPUT / "elasticity_over_time.csv", index_col=["province", "year"])
@@ -248,9 +240,12 @@ def main():
     data_through = min(s["month"] for s in stats.values())
     updated = dt.date.today()
 
-    (SITE / "index.html").write_text(page(stats, elasticities, latest_path, data_through, updated), encoding="utf-8")
+    (SITE / "index.html").write_text(page(stats, forecast, elasticities, latest_path, data_through, updated), encoding="utf-8")
     (SITE / "style.css").write_text(CSS, encoding="utf-8")
     status = {"data_through": data_through, "updated": updated.isoformat(), "provinces": stats,
+              "forecast_next_12_months_million_m3": {p: {"months": f.months, "forecast": f.forecast, "range_80": [f.low_80, f.high_80],
+                                                         "past_mean_abs_error_pct": f.mean_abs_error_pct}
+                                                     for p, f in forecast.iterrows()},
               "elasticities": {p: {"short_run": round(float(e.annual_short_run), 3), "long_run": round(float(e.annual_long_run), 3),
                                    "short_run_latest_year": round(float(latest_path.loc[p, "elasticity"]), 3),
                                    "short_run_latest_year_90": [round(float(latest_path.loc[p, "low"]), 3), round(float(latest_path.loc[p, "high"]), 3)]}

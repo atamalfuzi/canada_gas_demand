@@ -10,15 +10,6 @@ def frame(end="2026-08", use=100.0, price=0.3, hdd=300.0):
     return pd.DataFrame({"use": use, "real_price": price, "hdd": hdd}, index=months)
 
 
-def test_weather_adjustment_moves_use_to_normal_weather():
-    d = frame()
-    d.loc[d.index.month == 1, "hdd"] = 800.0  # every January in the 1991-2020 normal period
-    d.loc["2026-01", "hdd"] = 900.0  # a colder one: 100 degree days above normal
-    adjusted = dashboard.weather_adjusted(d, per_degree_day=0.001)
-    assert np.isclose(adjusted["2025-01"], 100.0)
-    assert np.isclose(adjusted["2026-01"], 100.0 * np.exp(-0.001 * 100))
-
-
 def test_summary_compares_with_expected_a_year_ago_and_the_previous_twelve_months(monkeypatch):
     d = frame()
     d.loc["2025-09":"2026-08", "use"] = 110.0  # the last 12 months, 10% above the 12 before

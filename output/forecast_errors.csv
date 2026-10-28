@@ -1,0 +1,25 @@
+province,horizon,Exponential smoothing,Same month last year,"Same, told the weather",Seasonal ARIMA with weather
+British Columbia,1,9.46,11.73,6.67,9.18
+British Columbia,2,9.66,11.66,6.65,8.93
+British Columbia,3,9.68,11.67,6.67,8.94
+British Columbia,4,9.87,11.67,6.69,9.0
+British Columbia,5,9.99,11.74,6.68,9.01
+British Columbia,6,9.82,11.68,6.58,8.95
+British Columbia,7,9.59,11.52,6.49,8.91
+British Columbia,8,9.75,11.54,6.51,8.92
+British Columbia,9,9.6,11.56,6.54,8.94
+British Columbia,10,9.55,11.58,6.48,8.88
+British Columbia,11,9.65,11.58,6.51,8.88
+British Columbia,12,10.04,11.63,6.55,8.92
+Ontario,1,11.31,11.6,7.53,9.01
+Ontario,2,14.83,11.7,8.46,11.36
+Ontario,3,16.08,11.68,8.53,11.57
+Ontario,4,16.57,11.59,8.55,11.62
+Ontario,5,16.11,11.49,8.41,11.57
+Ontario,6,15.7,11.49,8.38,11.6
+Ontario,7,15.08,11.48,8.27,11.62
+Ontario,8,14.66,11.48,8.2,11.63
+Ontario,9,13.58,11.49,8.27,11.66
+Ontario,10,12.03,11.49,8.24,11.67
+Ontario,11,10.99,11.48,8.25,11.68
+Ontario,12,11.65,11.56,8.32,11.72

@@ -1,0 +1,27 @@
+province,year,Exponential smoothing,Same month last year,"Same, told the weather",Seasonal ARIMA with weather
+British Columbia,2013,1.44,0.69,4.76,1.58
+British Columbia,2014,2.87,4.39,1.6,4.17
+British Columbia,2015,0.17,3.35,-2.08,7.36
+British Columbia,2016,-5.77,-2.98,-0.12,4.05
+British Columbia,2017,-12.89,-8.71,1.59,-5.75
+British Columbia,2018,-0.76,7.93,0.35,1.92
+British Columbia,2019,-6.61,-4.34,2.44,-2.24
+British Columbia,2020,-7.43,-2.28,-5.08,-4.3
+British Columbia,2021,-5.01,-1.97,-0.22,-5.02
+British Columbia,2022,-7.07,-3.49,-2.58,-9.14
+British Columbia,2023,7.48,13.82,0.96,5.58
+British Columbia,2024,-0.56,-1.66,0.53,3.44
+British Columbia,2025,2.53,3.19,4.41,6.19
+Ontario,2013,-7.66,-12.18,-3.75,-3.18
+Ontario,2014,-8.75,-9.68,-1.9,-10.76
+Ontario,2015,-1.2,5.41,-0.42,-5.83
+Ontario,2016,11.66,20.17,6.66,12.63
+Ontario,2017,-7.46,-0.53,3.48,9.05
+Ontario,2018,-12.79,-6.44,1.19,0.91
+Ontario,2019,16.33,-3.73,1.2,-2.34
+Ontario,2020,21.71,7.63,-2.36,3.67
+Ontario,2021,15.36,2.89,2.04,9.15
+Ontario,2022,3.36,-3.12,6.12,4.95
+Ontario,2023,14.72,8.11,0.64,10.47
+Ontario,2024,10.78,4.72,2.67,13.5
+Ontario,2025,-10.83,-12.42,0.8,-0.81

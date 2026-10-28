@@ -1,0 +1,12 @@
+province,from,to,change_pct_a_year,from_low_90,from_high_90
+British Columbia,1981,1999,0.02,,
+British Columbia,2000,2025,-1.38,1999,2000
+Alberta,1981,2013,-1.07,,
+Saskatchewan,1981,1990,-0.85,,
+Saskatchewan,1991,2014,-1.68,1990,1996
+Saskatchewan,2015,2025,-0.77,2009,2016
+Manitoba,1981,2025,-1.54,,
+Ontario,1981,1991,0.42,,
+Ontario,1992,2025,-1.69,1988,1996
+Quebec,1981,2000,2.4,,
+Quebec,2001,2025,-1.35,1995,2002

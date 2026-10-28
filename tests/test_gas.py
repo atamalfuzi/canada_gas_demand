@@ -83,6 +83,25 @@ def test_heating_degree_days_scale_partial_months_and_drop_thin_ones():
     assert pd.Period("2020-03") not in hdd.index
 
 
+def test_station_records_join_with_the_newest_first(monkeypatch):
+    days = pd.date_range("2012-01-01", periods=4)
+    readings = {"new": pd.Series([1.0, 2.0], index=days[2:]), "mid": pd.Series([5.0, 6.0], index=days[1:3]),
+                "old": pd.Series([9.0, 9.0], index=days[:2])}
+    monkeypatch.setattr(gas, "STATIONS", {"Somewhere": ("new", "mid", "old")})
+    monkeypatch.setattr(gas, "temperature", readings.get)
+    assert gas.daily_temperature("Somewhere").tolist() == [9.0, 5.0, 1.0, 2.0]
+
+
+def test_weather_adjustment_moves_use_to_normal_weather():
+    months = pd.period_range("1990-01", "2026-08", freq="M")
+    d = pd.DataFrame({"use": 100.0, "hdd": 300.0}, index=months)
+    d.loc[d.index.month == 1, "hdd"] = 800.0  # every January in the 1991-2020 normal period
+    d.loc["2026-01", "hdd"] = 900.0  # a colder one: 100 degree days above normal
+    adjusted = gas.weather_adjusted(d, per_degree_day=0.001)
+    assert np.isclose(adjusted["2025-01"], 100.0)
+    assert np.isclose(adjusted["2026-01"], 100.0 * np.exp(-0.001 * 100))
+
+
 def monthly_frame(years, use=100.0, price=0.5):
     months = pd.period_range(f"{years[0]}-01", f"{years[-1]}-12", freq="M")
     gas_frame = pd.DataFrame({"m3": use * 10.0, "customers": 10.0, "price": price}, index=months.astype(str))

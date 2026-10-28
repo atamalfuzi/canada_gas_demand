@@ -3,7 +3,8 @@ respond to price, how does that differ between the short and the long run, and h
 
 Data: Statistics Canada monthly natural gas sales and deliveries (tables 25-10-0033-01 to 2015 and
 25-10-0086-01 from 2016), provincial consumer price index (18-10-0004-01), and daily mean temperatures from
-the Government of Canada's climate data service.
+the Government of Canada's climate data service. load() builds the same series for six provinces, which
+provinces.py, heating.py, forecast.py and dashboard.py share.
 
 Run from the repository folder: python gas.py
 """
@@ -21,7 +22,8 @@ from scipy import stats
 from statsmodels.tsa.statespace.mlemodel import MLEModel
 
 DATA, FIGURES, OUTPUT = Path("data"), Path("figures"), Path("output")
-PROVINCES = ["British Columbia", "Ontario", "Alberta"]
+PROVINCES = ["British Columbia", "Ontario", "Alberta"]  # the price-response questions here
+SIX = ["British Columbia", "Alberta", "Saskatchewan", "Manitoba", "Ontario", "Quebec"]  # residential gas throughout since 1981
 START = "1980-01"
 ALBERTA_END = "2014-10"  # from November 2014 Alberta's reported price covers only the gas commodity
 
@@ -56,7 +58,7 @@ def statcan(pid):
 # Data: gas ----
 def gas_old(table):
     """1980-2015: sales (split into utility and direct sales from 2007), customers and the published unit price."""
-    t = table[table.GEO.isin(PROVINCES) & (table.Sector == "Residential") & (table.REF_DATE >= START)]
+    t = table[table.GEO.isin(SIX) & (table.Sector == "Residential") & (table.REF_DATE >= START)]
     t = t.pivot_table(index=["GEO", "REF_DATE"], columns="Estimates", values="VALUE", aggfunc="first")
     volume = t[["Sales", "Utilities sales", "Direct sales"]].fillna(0).sum(axis=1)  # thousand m3
     return pd.DataFrame({"m3": volume * 1e3, "customers": t.Customers, "price": t["Sales unit price"] / 100})
@@ -64,7 +66,7 @@ def gas_old(table):
 
 def gas_new(table):
     """2016 onward: residential consumption in cubic metres and dollars, and customers."""
-    t = table[table.GEO.isin(PROVINCES) & (table["Supply and disposition"] == "Residential consumption")]
+    t = table[table.GEO.isin(SIX) & (table["Supply and disposition"] == "Residential consumption")]
     t = t.pivot_table(index=["GEO", "REF_DATE"], columns="Unit of measure", values="VALUE", aggfunc="first")
     return pd.DataFrame({"m3": t["Cubic metres"] * 1e3, "customers": t.Customers,
                          "price": t["Canadian dollars"] / t["Cubic metres"]})
@@ -88,16 +90,19 @@ def fix_ontario(gas):
 # Data: prices ----
 def cpi(table):
     """All-items consumer price index by province, monthly (2002 = 100)."""
-    t = table[table.GEO.isin(PROVINCES) & (table["Products and product groups"] == "All-items") & (table.REF_DATE >= START)]
+    t = table[table.GEO.isin(SIX) & (table["Products and product groups"] == "All-items") & (table.REF_DATE >= START)]
     return t.set_index(["GEO", "REF_DATE"]).VALUE
 
 
 # Data: weather ----
-# One airport per province; each station was replaced in 2012-2013, so two IDs (newest first)
+# One airport per province; most stations were replaced in 2012-2013, so several IDs (newest first)
 STATIONS = {
     "British Columbia": ("1108395", "1108447"),  # Vancouver
-    "Ontario": ("6158731", "6158733"),  # Toronto
     "Alberta": ("3031092", "3031093"),  # Calgary
+    "Saskatchewan": ("4016566", "4016699", "4016560"),  # Regina
+    "Manitoba": ("5023227", "502S001", "5023222"),  # Winnipeg
+    "Ontario": ("6158731", "6158733"),  # Toronto
+    "Quebec": ("7025251", "7025250"),  # Montreal
 }
 
 
@@ -114,6 +119,15 @@ def temperature(climate_id):
     return t.set_index(pd.to_datetime(t.LOCAL_DATE).dt.normalize()).MEAN_TEMPERATURE.dropna()
 
 
+def daily_temperature(province):
+    """The province's airport, joining its station records: each newer station's readings take precedence."""
+    newest, *older = STATIONS[province]
+    t = temperature(newest)
+    for climate_id in older:
+        t = t.combine_first(temperature(climate_id))
+    return t
+
+
 def heating_degree_days(daily):
     """Monthly heating degree days below 18 C, from months with at least two weeks of readings, scaled up to the
     full month (a few months in 1993 and 2012-2013 have gaps)."""
@@ -125,8 +139,11 @@ def heating_degree_days(daily):
 
 # Series ----
 # Years from which the tables report differently, so each period gets its own level: the 2016 switch to the
-# newer table, and Ontario's coverage change after its 1998-2000 gap (customers up a quarter in 2001)
-REPORTING_BREAKS = {"British Columbia": [2016], "Ontario": [2001, 2016], "Alberta": []}
+# newer table, Ontario's coverage change after its 1998-2000 gap (customers up a quarter in 2001), Manitoba's in 2007
+# (as the older table splits utility and direct sales) and Quebec's in 2019 (customers up a quarter after three years
+# frozen at one count). Alberta's series ends before 2016.
+REPORTING_BREAKS = {"British Columbia": [2016], "Alberta": [], "Saskatchewan": [2016], "Manitoba": [2007, 2016],
+                    "Ontario": [2001, 2016], "Quebec": [2016, 2019]}
 
 
 def breaks(frame):
@@ -167,6 +184,25 @@ def annual(d):
     y["log_use_lag"] = y.log_use.shift(1)
     y["trend"] = (y.index - 1980) / 10  # per decade
     return y.rename_axis("year")
+
+
+def weather_adjusted(d, per_degree_day):
+    """Use per customer as if each month had its calendar month's 1991-2020 average heating degree days."""
+    base = d.loc["1991-01":"2020-12"]
+    normal = base.hdd.groupby(base.index.month).mean()
+    return d.use * np.exp(per_degree_day * (d.index.month.map(normal).to_numpy() - d.hdd))
+
+
+def load(provinces=SIX):
+    """Each province's monthly series from 1981 (Alberta's to October 2014), and its daily temperatures."""
+    gas = fix_ontario(pd.concat([gas_old(statcan("25100033")), gas_new(statcan("25100086"))]).sort_index())
+    prices = cpi(statcan("18100004"))
+    series, temperatures = {}, {}
+    for p in provinces:
+        temperatures[p] = daily_temperature(p)
+        d = monthly(gas.loc[p], prices.loc[p], heating_degree_days(temperatures[p]), REPORTING_BREAKS[p]).loc["1981-01":]
+        series[p] = d.loc[:ALBERTA_END] if p == "Alberta" else d
+    return series, temperatures
 
 
 MODEL_INPUTS = ["log_use", "log_price", "log_use_lag", "hdd"]
@@ -253,19 +289,36 @@ def time_varying(y):
     return path, lr, 0.5 * stats.chi2.sf(lr, 1)
 
 
+# Figures ----
+INK, MUTED, GREY, BLUE, ORANGE = "#0b0b0b", "#52514e", "#a8a7a2", "#2a78d6", "#eb6834"
+COLOURS = {"British Columbia": BLUE, "Ontario": ORANGE, "Alberta": "#3a9b6a"}
+SOURCE = ("Source: Statistics Canada tables 25-10-0033-01, 25-10-0086-01 and 18-10-0004-01; "
+          "Government of Canada daily climate data.")
+STYLE = {
+    "font.size": 11, "axes.spines.top": False, "axes.spines.right": False, "axes.spines.left": False,
+    "axes.edgecolor": MUTED, "xtick.color": MUTED, "ytick.color": MUTED, "axes.labelcolor": MUTED,
+    "axes.grid": True, "grid.color": "#e6e5e1", "axes.axisbelow": True, "legend.frameon": False,
+}
+
+
+def short(province):
+    return "BC" if province == "British Columbia" else province
+
+
+def save(fig, name, title, subtitle, caption):
+    fig.text(0.01, 0.99, title, fontsize=15, fontweight="bold", color=INK, va="top")
+    fig.text(0.01, 0.93, subtitle, color=MUTED, va="top")
+    fig.text(0.01, 0.01, caption, color=MUTED, fontsize=9, va="bottom")
+    fig.savefig(FIGURES / name, dpi=200, facecolor="white")
+    plt.close(fig)
+
+
 def main():
     for folder in (DATA, FIGURES, OUTPUT):
         folder.mkdir(exist_ok=True)
 
-    gas = fix_ontario(pd.concat([gas_old(statcan("25100033")), gas_new(statcan("25100086"))]).sort_index())
-    prices = cpi(statcan("18100004"))
-    series, years = {}, {}
-    for p in PROVINCES:
-        new, old = STATIONS[p]
-        hdd = heating_degree_days(temperature(new).combine_first(temperature(old)))
-        d = monthly(gas.loc[p], prices.loc[p], hdd, REPORTING_BREAKS[p]).loc["1981-01":]
-        series[p] = d.loc[:ALBERTA_END] if p == "Alberta" else d
-        years[p] = annual(series[p])
+    series, _ = load(PROVINCES)
+    years = {p: annual(d) for p, d in series.items()}
 
     # Estimates ----
     rows, paths = [], {}
@@ -288,23 +341,7 @@ def main():
     print(results.round(3).T.to_string())
 
     # Figures ----
-    INK, MUTED, GREY = "#0b0b0b", "#52514e", "#a8a7a2"
-    COLOURS = {"British Columbia": "#2a78d6", "Ontario": "#eb6834", "Alberta": "#3a9b6a"}
-    SOURCE = ("Source: Statistics Canada tables 25-10-0033-01, 25-10-0086-01 and 18-10-0004-01; "
-              "Government of Canada daily climate data.")
-    plt.rcParams.update({
-        "font.size": 11, "axes.spines.top": False, "axes.spines.right": False, "axes.spines.left": False,
-        "axes.edgecolor": MUTED, "xtick.color": MUTED, "ytick.color": MUTED, "axes.labelcolor": MUTED,
-        "axes.grid": True, "grid.color": "#e6e5e1", "axes.axisbelow": True, "legend.frameon": False,
-    })
-
-    def save(fig, name, title, subtitle, caption):
-        fig.text(0.01, 0.99, title, fontsize=15, fontweight="bold", color=INK, va="top")
-        fig.text(0.01, 0.93, subtitle, color=MUTED, va="top")
-        fig.text(0.01, 0.01, caption, color=MUTED, fontsize=9, va="bottom")
-        fig.savefig(FIGURES / name, dpi=200, facecolor="white")
-        plt.close(fig)
-
+    plt.rcParams.update(STYLE)
     # Figure use_and_price ----
     fig, (left, right) = plt.subplots(1, 2, figsize=(12, 5.5))
     fig.subplots_adjust(top=0.80, bottom=0.2, wspace=0.22)
