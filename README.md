@@ -13,7 +13,7 @@ Five questions about household natural gas in Canada since 1981, each answered w
 | [How much do households respond to price?](#1-how-much-do-households-respond-to-price) | Regression, partial adjustment, Kalman filter | A little: in BC a 10% higher price cuts use 1.2% within the year and 1.8% in the long run; two traps overstate it |
 | [Is BC different from other provinces?](#2-is-bc-different-from-other-provinces) | Random effects (partial pooling), recursive bootstrap | Across six provinces the response averages −0.07; BC's −0.15 moves to −0.10 once its noise is allowed for |
 | [Where did the fall in use come from?](#3-where-did-the-fall-in-use-come-from) | Heating-curve (balance-point) regression, bootstrap, segmented trends | In BC, 45% of it from year-round use such as water heating, which fell 38% against 28% for space heating; the decline began in 2000 |
-| [How well can demand be forecast?](#4-how-well-can-demand-be-forecast) | Seasonal ARIMA, exponential smoothing, conformal prediction | A year ahead to within 4.7% in BC and 6.7% in Ontario; given the weather, 2.1% and 2.6% |
+| [How well can demand be forecast?](#4-how-well-can-demand-be-forecast) | Seasonal ARIMA, exponential smoothing, conformal prediction | A year ahead, off by 4.7% on average in BC and 6.7% in Ontario; given the weather, 2.1% and 2.6% |
 | [What does machine learning see?](#5-what-does-machine-learning-see) | Gradient boosting, permutation importance, partial dependence | Better predictions than a linear model and the heating curve, but no consistent price effect |
 
 ## What it shows
@@ -62,7 +62,7 @@ A price elasticity of −0.1 means a 10% higher real price cuts gas use per cust
 
 ![A year's forecast error with normal weather and given the weather](figures/forecast_weather.png)
 
-- **A year's gas use can be forecast to within about 5% in BC and 7% in Ontario, and most of the error is the weather.** From every month since December 2012, a seasonal ARIMA with heating degree days, fitted only to the data before it and assuming normal weather ahead, forecast the next 12 months of residential volume. Forecasting each calendar year the December before, it missed by 4.7% on average in BC and 6.7% in Ontario. Told the weather that came, the same model missed by 2.1% and 2.6%.
+- **A year's gas use can be forecast with an average error of about 5% in BC and 7% in Ontario, and most of the error is the weather.** From every month since December 2012, a seasonal ARIMA with heating degree days, fitted only to the data before it and assuming normal weather ahead, forecast the next 12 months of residential volume. Forecasting each calendar year the December before, it missed by 4.7% on average in BC and 6.7% in Ontario. Told the weather that came, the same model missed by 2.1% and 2.6%.
 - **Month by month it misses by about 9% in BC and 9–12% in Ontario.** In BC it beats exponential smoothing and the same month last year at every horizon; in Ontario it beats exponential smoothing and is level with the same month last year beyond a month. For a year's total in BC, repeating last year did as well (4.5%): the model's value is the monthly shape, the ranges and the split into weather and the rest.
 
 | Average error, % of volume | 1 month ahead | 3 months | 12 months |
