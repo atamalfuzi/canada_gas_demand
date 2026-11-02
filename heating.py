@@ -201,16 +201,20 @@ def linear(train, test):
 
 
 def compare(f, first=2011):
-    """Each year from `first` predicted by models fitted only to earlier years, the weather known: absolute error as
-    a % of use per customer."""
-    rows = {}
+    """Each year from `first` predicted by models fitted only to earlier years, the weather known. Returns the absolute
+    error as a % of use per customer, and each feature's importance by year: the fall in R² when it is shuffled among
+    that year's rows, which the model has not seen. Scored on the rows a model was fitted to, importance favours what
+    trees can memorise. The year has one value in each test, so it scores zero by construction."""
+    rows, shuffled = {}, {}
     for year in range(first, f.year.max() + 1):
         train, test = f[f.year < year], f[f.year == year].sort_values("province", kind="stable")
-        boosted = np.exp(boosting().fit(train[FEATURES], train.y).predict(test[FEATURES]))
+        model = boosting().fit(train[FEATURES], train.y)
+        boosted = np.exp(model.predict(test[FEATURES]))
         lin = np.exp(np.concatenate([linear(train[train.province == p], t) for p, t in test.groupby("province")]))
         actual = np.exp(test.y.to_numpy())
         rows[year] = {"boosting": np.abs(boosted - actual).sum() / actual.sum(), "linear": np.abs(lin - actual).sum() / actual.sum()}
-    return pd.DataFrame(rows).T.rename_axis("year") * 100
+        shuffled[year] = permutation_importance(model, test[FEATURES], test.y, n_repeats=10, random_state=0).importances_mean
+    return pd.DataFrame(rows).T.rename_axis("year") * 100, pd.DataFrame(shuffled, index=FEATURES).T.rename_axis("year")
 
 
 def main():
@@ -227,17 +231,23 @@ def main():
     pd.concat(trends, names=["province"]).droplevel(1).round(2).astype({"from_low_90": "Int64", "from_high_90": "Int64"})         .to_csv(gas.OUTPUT / "trend_segments.csv")
 
     f = learning_frame(series, temperatures)
-    errors = compare(f)
-    model = boosting().fit(f[FEATURES], f.y)
-    importance = permutation_importance(model, f[FEATURES], f.y, n_repeats=10, random_state=0)
-    importance = pd.Series(importance.importances_mean, FEATURES).sort_values()
+    errors, by_year = compare(f)
+    importance = by_year.mean().sort_values()
+    model = boosting().fit(f[FEATURES], f.y)  # for partial dependence
     by_temp = partial_dependence(model, f[FEATURES], ["temp"], grid_resolution=30, percentiles=(0.02, 0.98), method="brute")
     by_price = partial_dependence(model, f[FEATURES], ["log_price_past_year"], grid_resolution=20, percentiles=(0.05, 0.95), method="brute")
     price_slope = np.polyfit(by_price["grid_values"][0], by_price["average"][0], 1)[0]
     errors.round(2).to_csv(gas.OUTPUT / "boosting_errors.csv")
-    importance.round(5).rename("importance").rename_axis("feature").to_csv(gas.OUTPUT / "boosting_importance.csv")
+    pd.DataFrame({"importance": importance, "sd_across_years": by_year.std()[importance.index],
+                  "years_above_zero": (by_year > 0).sum()[importance.index]}).round(5).rename_axis("feature") \
+        .to_csv(gas.OUTPUT / "boosting_importance.csv")
     print(f"{len(f)} province-months; % error by year:\n", errors.round(1).to_string())
-    print("Mean:", errors.mean().round(2).to_dict(), "\nPermutation importance:", importance.round(4).to_dict())
+    print("Mean:", errors.mean().round(2).to_dict(), "\nHeld-out permutation importance:", importance.round(4).to_dict())
+    print("By test year:\n", by_year.round(4).to_string())
+    tested = f[f.year >= errors.index[0]]
+    within = tested.log_price_past_year - tested.groupby("year").log_price_past_year.transform("mean")
+    print("Share of the price's variance within a test year that lies between provinces: "
+          f"{within.groupby([tested.year, tested.province]).transform('mean').var() / within.var():.0%}")
     print(f"Slope of the partial dependence on log price (an elasticity, if it were causal): {price_slope:.3f}")
 
     plt.rcParams.update(gas.STYLE)
@@ -274,8 +284,9 @@ def main():
     fig, (a1, a2, a3) = plt.subplots(1, 3, figsize=(13, 5.2), gridspec_kw={"width_ratios": [1, 1.1, 1]})
     fig.subplots_adjust(top=0.76, bottom=0.2, wspace=0.42, left=0.19, right=0.98)
     a1.barh([names[k] for k in importance.index], importance / importance.max() * 100, color=BLUE)
-    a1.set_xlabel("Permutation importance, % of the largest")
-    a1.set_title("What the model leans on", loc="left", color=INK, fontsize=11)
+    a1.text(2, list(importance.index).index("year"), "zero by construction", va="center", color=MUTED, fontsize=9)
+    a1.set_xlabel("Importance on held-out years, % of the largest")
+    a1.set_title("What helps predict unseen years", loc="left", color=INK, fontsize=11)
     a2.plot(by_temp["grid_values"][0], np.exp(by_temp["average"][0]), color=BLUE, lw=2.2)
     a2.set_xlabel("Month's mean temperature, °C")
     a2.set_ylabel("m³ per customer a day")
@@ -291,8 +302,9 @@ def main():
     gas.save(fig, "ml_drivers.png", "Gradient boosting predicts gas use better than a linear model, but finds no consistent price effect",
              f"Six provinces' monthly use per customer, each year since {errors.index[0]} predicted from earlier years "
              f"(weather known): {errors.boosting.mean():.1f}% error against {errors.linear.mean():.1f}%",
-             "Price moves slowly with the year, so a model built to predict credits its effect to the year and province: partial "
-             "dependence is not a causal effect.\n" + gas.SOURCE)
+             "Importance: the fall in R² when a feature is shuffled within a held-out year, averaged over the test years; the "
+             "year has one value in each test.\nPartial dependence: the model fitted to all years; not a causal effect. "
+             + gas.SOURCE)
 
 
 if __name__ == "__main__":
