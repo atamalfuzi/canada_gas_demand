@@ -1,6 +1,10 @@
-"""Checks for the forecast backtest's scoring: conformal ranges, normal weather and yearly errors. No downloads."""
+"""Checks for the forecast backtest's scoring: conformal ranges, normal weather, yearly errors and the count of fits
+that failed to converge. No downloads."""
+from collections import Counter
+
 import numpy as np
 import pandas as pd
+from statsmodels.tsa.statespace.sarimax import SARIMAX
 
 import forecast
 
@@ -20,6 +24,15 @@ def test_conformal_ranges_use_only_errors_known_at_the_origin():
     assert e.width.iloc[:24].isna().all()  # too few earlier errors to build a range
     assert np.isclose(e.width.iloc[24], np.quantile(np.arange(1, 25) / 100, 0.8))  # the 24 errors known by then
     assert np.isclose(widths[1], np.quantile(e.abs_err, 0.8))  # the latest forecast uses all of them
+
+
+def test_fits_that_fail_to_converge_are_all_counted():
+    months = pd.period_range("2000-01", periods=120, freq="M")
+    y = pd.Series(2 + np.cos(2 * np.pi * months.month / 12) + np.random.default_rng(0).normal(0, 0.1, 120), index=months)
+    fits = Counter()
+    for maxiter in (1, 1, 200):  # the first two stop early; the repeat must count, though it warns from the same line
+        forecast.counted_fit(lambda: SARIMAX(y, order=(1, 0, 0)).fit(disp=False, maxiter=maxiter), "arima", fits)
+    assert fits["arima", "fits"] == 3 and fits["arima", "not_converged"] == 2
 
 
 def test_year_errors_compare_december_forecasts_of_the_next_calendar_year():

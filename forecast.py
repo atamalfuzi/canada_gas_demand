@@ -7,6 +7,7 @@ for the write-up's interactive charts.
 
 Run from the repository folder: python forecast.py (about five minutes)
 """
+from collections import Counter
 import json
 import warnings
 
@@ -14,6 +15,7 @@ import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from statsmodels.tools.sm_exceptions import ConvergenceWarning
 from statsmodels.tsa.exponential_smoothing.ets import ETSModel
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
@@ -38,30 +40,43 @@ def normal_hdd(hdd, origin, months):
     return pd.Series(past.groupby(past.index.month).mean().reindex(months.month).to_numpy(), index=months)
 
 
-def forecasts(y, hdd):
+def counted_fit(fit, model, fits):
+    """Fit a model, adding to `fits` that it ran, whether it failed to converge, and any other kind of warning."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")  # by default a warning repeated from the same line is dropped, and so uncounted
+        result = fit()
+    fits[model, "fits"] += 1
+    for kind in {w.category for w in caught}:
+        fits[model, "not_converged" if issubclass(kind, ConvergenceWarning) else kind.__name__] += 1
+    return result
+
+
+def forecasts(y, hdd, fits):
     """Each method's forecasts of log volume for the H months after y; the ARIMA's with its own 80% range, and again
-    told the weather when all of it is known."""
+    told the weather when all of it is known. Tallies the fits in `fits`."""
     origin = y.index[-1]
     ahead = pd.period_range(origin + 1, periods=H, freq="M")
-    s = SARIMAX(y, exog=exog(hdd).loc[y.index], order=(1, 0, 1), seasonal_order=(0, 1, 1, 12)).fit(disp=False, maxiter=200)
+    s = counted_fit(lambda: SARIMAX(y, exog=exog(hdd).loc[y.index], order=(1, 0, 1), seasonal_order=(0, 1, 1, 12))
+                    .fit(disp=False, maxiter=200), BEST, fits)
     f = s.get_forecast(H, exog=exog(pd.concat([hdd.loc[:origin], normal_hdd(hdd, origin, ahead)])).loc[ahead])
     ci = f.conf_int(alpha=0.2)
     out = {BEST: pd.DataFrame({"mean": f.predicted_mean, "low_80": ci.iloc[:, 0], "high_80": ci.iloc[:, 1]})}
     actual = exog(hdd.reindex(pd.period_range(hdd.index[0], ahead[-1], freq="M"))).loc[ahead]
     if actual.notna().all().all():
         out[TOLD] = pd.DataFrame({"mean": s.get_forecast(H, exog=actual).predicted_mean})
-    e = ETSModel(y, error="add", trend="add", damped_trend=True, seasonal="add", seasonal_periods=12).fit(disp=False)
+    e = counted_fit(lambda: ETSModel(y, error="add", trend="add", damped_trend=True, seasonal="add", seasonal_periods=12)
+                    .fit(disp=False), "Exponential smoothing", fits)
     out["Exponential smoothing"] = pd.DataFrame({"mean": e.forecast(H).to_numpy()}, index=ahead)
     out["Same month last year"] = pd.DataFrame({"mean": y.reindex(ahead - 12).to_numpy()}, index=ahead)
     return out
 
 
-def backtest(y, hdd):
+def backtest(y, hdd, fits):
     """Forecasts from every month since FIRST_ORIGIN, each fitted to the data before it, against what happened
     (million m3)."""
     rows = []
     for origin in pd.period_range(FIRST_ORIGIN, y.index[-1] - 1, freq="M"):
-        for name, f in forecasts(y.loc[:origin], hdd).items():
+        for name, f in forecasts(y.loc[:origin], hdd, fits).items():
             for step, (month, r) in enumerate(np.exp(f).iterrows(), start=1):
                 if month in y.index:
                     rows.append({"origin": origin, "month": month, "horizon": step, "model": name,
@@ -119,15 +134,16 @@ def chart_data(volume, e, told, live):
 
 
 def main():
-    warnings.filterwarnings("ignore")  # convergence notes from refitting the models 165 times
     series, temperatures = gas.load()
-    results, fans, charts = {}, {}, {}
+    results, fans, charts, fit_counts = {}, {}, {}, {}
     for p in PROVINCES:
         d = series[p]
         y = np.log(d.m3 / 1e6).loc[FIT_FROM[p]:].dropna()
-        bt = backtest(y, d.hdd)
+        fits = Counter()
+        bt = backtest(y, d.hdd, fits)
         e, widths = conformal(bt[bt.model == BEST])
-        live = np.exp(forecasts(y, d.hdd)[BEST]["mean"])
+        live = np.exp(forecasts(y, d.hdd, fits)[BEST]["mean"])
+        fit_counts[p] = pd.Series(fits).unstack(fill_value=0)
         fans[p] = pd.DataFrame({"mean": live, "low_80": live * (1 - widths.to_numpy()),
                                 "high_80": live * (1 + widths.to_numpy())})
         t, total = totals(e), float(live.sum())
@@ -144,7 +160,9 @@ def main():
         print(f"80% ranges held: the model's own {own:.0%}, conformal (earlier errors only) {held:.0%}")
         print("A calendar year's total, mean absolute % error:", results[p]["years"].abs().mean().round(1).to_dict())
         print("The next 12 months:", twelve)
+        print("Model fits and warnings:\n", fit_counts[p].to_string())
 
+    pd.concat(fit_counts, names=["province", "model"]).fillna(0).astype(int).to_csv(gas.OUTPUT / "forecast_fits.csv")
     pd.concat(fans, names=["province", "month"]).round(1).to_csv(gas.OUTPUT / "forecast.csv")
     pd.concat({p: r["errors"] for p, r in results.items()}, names=["province"]).round(2).to_csv(gas.OUTPUT / "forecast_errors.csv")
     pd.concat({p: r["years"] for p, r in results.items()}, names=["province"]).round(2).to_csv(gas.OUTPUT / "forecast_years.csv")

@@ -1,0 +1,5 @@
+province,model,fits,not_converged
+British Columbia,Exponential smoothing,165,0
+British Columbia,Seasonal ARIMA with weather,165,1
+Ontario,Exponential smoothing,165,0
+Ontario,Seasonal ARIMA with weather,165,2
