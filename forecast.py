@@ -153,11 +153,15 @@ def main():
                   "mean_abs_error_pct": round(float((t.forecast / t.actual - 1).abs().mean()) * 100, 1)}
         own = e.actual.between(e.low_80, e.high_80).mean()
         held = (e.abs_err <= e.width)[e.width.notna()].mean()
-        results[p] = {"errors": errors(bt), "years": year_errors(bt), "own": own, "held": held, "total": twelve}
+        scored = e[e.width.notna()]
+        span = ((scored.month.max() - scored.month.min()).n + 1) / 12  # forecasts overlap, so the independent years are few
+        results[p] = {"errors": errors(bt), "years": year_errors(bt), "own": own, "held": held, "total": twelve, "span": span}
         charts[p] = chart_data(np.exp(y), e, bt[bt.model == TOLD], fans[p])
         print(f"{p}: {bt.origin.nunique()} origins, {bt.origin.min()} to {bt.origin.max()}")
         print(results[p]["errors"].loc[[1, 3, 6, 12]].round(1).to_string())
-        print(f"80% ranges held: the model's own {own:.0%}, conformal (earlier errors only) {held:.0%}")
+        print(f"80% ranges held: the model's own {own:.0%}, conformal (earlier errors only) {held:.0%}, from {len(scored)} "
+              f"forecasts at {scored.origin.nunique()} overlapping origins, outcomes {scored.month.min()} to {scored.month.max()} "
+              f"({span:.1f} years); the 12-month range from {len(t)} overlapping totals")
         print("A calendar year's total, mean absolute % error:", results[p]["years"].abs().mean().round(1).to_dict())
         print("The next 12 months:", twelve)
         print("Model fits and warnings:\n", fit_counts[p].to_string())
@@ -192,7 +196,8 @@ def main():
     gas.save(fig, "forecast.png", "Residential gas use over the next 12 months, with ranges from past errors",
              f"Seasonal ARIMA with heating degree days, normal weather assumed, from {series[PROVINCES[0]].index[-1]:%B %Y}",
              f"80% ranges from the absolute % errors of forecasts made each month since {FIRST_ORIGIN[:4]}; built only from "
-             f"earlier errors, such ranges held {held}.\n" + gas.SOURCE)
+             f"earlier errors, such ranges held {held}.\nThose forecasts overlap and span about "
+             f"{results[PROVINCES[0]]['span']:.0f} independent years, so the shares are rough.\n" + gas.SOURCE)
 
     # A year ahead, with and without knowing the weather
     fig, axes = plt.subplots(1, 2, figsize=(12, 5.4), sharey=True)
